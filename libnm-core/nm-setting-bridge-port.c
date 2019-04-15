@@ -233,28 +233,35 @@ nm_setting_bridge_port_remove_vlan (NMSettingBridgePort *setting, guint idx)
 }
 
 /**
- * nm_setting_bridge_port_remove_vlan_by_vid:
+ * nm_setting_bridge_port_remove_vlan_by_vid_range:
  * @setting: the #NMSettingBridgePort
- * @vid: the vlan index of the vlan to remove
+ * @vid_start: the vlan start index
+ * @vid_end: the vlan end index
  *
- * Removes the vlan vith id @vid.
+ * If @vid_end is zero, removes the VLAN with id @vid_start;
+ * otherwise removes the VLAN with range @vid_start - @vid_end.
  *
  * Returns: %TRUE if the vlan was found and removed; %FALSE otherwise
  *
  * Since: 1.18
  **/
 gboolean
-nm_setting_bridge_port_remove_vlan_by_vid (NMSettingBridgePort *setting,
-                                           guint16 vid)
+nm_setting_bridge_port_remove_vlan_by_vid_range (NMSettingBridgePort *setting,
+                                                 guint16 vid_start,
+                                                 guint16 vid_end)
 {
 	NMSettingBridgePortPrivate *priv;
+	guint16 v_start, v_end;
+	NMBridgeVlan *vlan;
 	guint i;
 
 	g_return_val_if_fail (NM_IS_SETTING_BRIDGE_PORT (setting), FALSE);
 	priv = NM_SETTING_BRIDGE_PORT_GET_PRIVATE (setting);
 
 	for (i = 0; i < priv->vlans->len; i++) {
-		if (nm_bridge_vlan_get_vid  (priv->vlans->pdata[i]) == vid) {
+		vlan = (NMBridgeVlan *) priv->vlans->pdata[i];
+		nm_bridge_vlan_get_vid_range (vlan, &v_start, &v_end);
+		if (v_start == vid_start && v_end == vid_end) {
 			g_ptr_array_remove_index (priv->vlans, i);
 			_notify (setting, PROP_VLANS);
 			return TRUE;
@@ -556,13 +563,16 @@ nm_setting_bridge_port_class_init (NMSettingBridgePortClass *klass)
 	 *
 	 *  $vid [pvid] [untagged] [, $vid [pvid] [untagged]]...
 	 *
+	 * where $vid is either a single id between 1 and 4094 or a
+	 * range, represented as a couple of ids separated by a dash.
+	 *
 	 * Since: 1.18
 	 **/
 	/* ---ifcfg-rh---
 	 * property: vlans
 	 * variable: BRIDGE_PORT_VLANS
 	 * description: List of VLANs on the bridge port
-	 * example: BRIDGE_PORT_VLANS="1 pvid untagged,20,40 untagged"
+	 * example: BRIDGE_PORT_VLANS="1 pvid untagged,20,300-400 untagged"
 	 * ---end---
 	 */
 	obj_properties[PROP_VLANS] =

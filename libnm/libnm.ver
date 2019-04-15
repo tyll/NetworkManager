@@ -1524,11 +1524,12 @@ global:
 	nm_bridge_vlan_cmp;
 	nm_bridge_vlan_from_str;
 	nm_bridge_vlan_get_type;
-	nm_bridge_vlan_get_vid;
+	nm_bridge_vlan_get_vid_range;
 	nm_bridge_vlan_is_pvid;
 	nm_bridge_vlan_is_sealed;
 	nm_bridge_vlan_is_untagged;
 	nm_bridge_vlan_new;
+	nm_bridge_vlan_new_range;
 	nm_bridge_vlan_new_clone;
 	nm_bridge_vlan_ref;
 	nm_bridge_vlan_seal;
@@ -1592,9 +1593,9 @@ global:
 	nm_setting_bridge_port_get_num_vlans;
 	nm_setting_bridge_port_get_vlan;
 	nm_setting_bridge_port_remove_vlan;
-	nm_setting_bridge_port_remove_vlan_by_vid;
+	nm_setting_bridge_port_remove_vlan_by_vid_range;
 	nm_setting_bridge_remove_vlan;
-	nm_setting_bridge_remove_vlan_by_vid;
+	nm_setting_bridge_remove_vlan_by_vid_range;
 	nm_setting_ip_config_add_routing_rule;
 	nm_setting_ip_config_clear_routing_rules;
 	nm_setting_ip_config_get_num_routing_rules;

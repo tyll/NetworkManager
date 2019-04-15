@@ -81,6 +81,7 @@ G_DEFINE_BOXED_TYPE (NMBridgeVlan, nm_bridge_vlan, _nm_bridge_vlan_dup, nm_bridg
 struct _NMBridgeVlan {
 	guint refcount;
 	guint16 vid;
+	guint16 vid_end;
 	bool untagged:1;
 	bool pvid:1;
 	bool sealed:1;
@@ -95,10 +96,40 @@ NM_IS_BRIDGE_VLAN (const NMBridgeVlan *self, gboolean also_sealed)
 }
 
 /**
+ * nm_bridge_vlan_new_range:
+ * @vid_start: the start VLAN id, must be between 1 and 4094.
+ * @vid_end: the end VLAN id, must be 0 or between @vid_start and 4094.
+ *
+ * Creates a new #NMBridgeVlan object for the given VLAN id range.
+ * Setting @vid_end to 0 creates a VLAN with single id.
+ *
+ * Returns: (transfer full): the new #NMBridgeVlan object.
+ *
+ * Since: 1.18
+ **/
+NMBridgeVlan *
+nm_bridge_vlan_new_range (guint16 vid_start, guint16 vid_end)
+{
+	NMBridgeVlan *vlan;
+
+	g_return_val_if_fail (vid_start >= NM_BRIDGE_VLAN_VID_MIN, NULL);
+	g_return_val_if_fail (vid_start <= NM_BRIDGE_VLAN_VID_MAX, NULL);
+	g_return_val_if_fail (!vid_end || vid_end > vid_start, NULL);
+	g_return_val_if_fail (!vid_end || vid_end <= NM_BRIDGE_VLAN_VID_MAX, NULL);
+
+	vlan = g_slice_new0 (NMBridgeVlan);
+	vlan->refcount = 1;
+	vlan->vid = vid_start;
+	vlan->vid_end = vid_end;
+
+	return vlan;
+}
+
+/**
  * nm_bridge_vlan_new:
  * @vid: the VLAN id, must be between 1 and 4094.
  *
- * Creates a new #NMBridgeVlan object.
+ * Creates a new #NMBridgeVlan object for the given VLAN id.
  *
  * Returns: (transfer full): the new #NMBridgeVlan object.
  *
@@ -107,16 +138,7 @@ NM_IS_BRIDGE_VLAN (const NMBridgeVlan *self, gboolean also_sealed)
 NMBridgeVlan *
 nm_bridge_vlan_new (guint16 vid)
 {
-	NMBridgeVlan *vlan;
-
-	g_return_val_if_fail (vid >= NM_BRIDGE_VLAN_VID_MIN, NULL);
-	g_return_val_if_fail (vid <= NM_BRIDGE_VLAN_VID_MAX, NULL);
-
-	vlan = g_slice_new0 (NMBridgeVlan);
-	vlan->refcount = 1;
-	vlan->vid = vid;
-
-	return vlan;
+	return nm_bridge_vlan_new_range (vid, 0);
 }
 
 /**
@@ -180,6 +202,7 @@ nm_bridge_vlan_cmp (const NMBridgeVlan *a, const NMBridgeVlan *b)
 
 	NM_CMP_SELF (a, b);
 	NM_CMP_FIELD (a, b, vid);
+	NM_CMP_FIELD (a, b, vid_end);
 	NM_CMP_FIELD_BOOL (a, b, untagged);
 	NM_CMP_FIELD_BOOL (a, b, pvid);
 
@@ -213,21 +236,30 @@ _nm_bridge_vlan_dup_and_seal (const NMBridgeVlan *vlan)
 }
 
 /**
- * nm_bridge_vlan_get_vid:
+ * nm_bridge_vlan_get_vid_range:
  * @vlan: the #NMBridgeVlan
+ * @vid_start: location to store the VLAN id (for regular VLANs) or the
+ *     VLAN id start for ranges.
+ * @vid_end: location to store the VLAN id range end
  *
- * Gets the VLAN id of the object.
+ * Gets the VLAN id or the VLAN id range. @vid_end is set to zero
+ * for single VLANs.
  *
- * Returns: the VLAN id
+ * Returns: %TRUE is the VLAN specifies a range, %FALSE otherwise.
  *
  * Since: 1.18
  **/
-guint16
-nm_bridge_vlan_get_vid (const NMBridgeVlan *vlan)
+gboolean
+nm_bridge_vlan_get_vid_range (const NMBridgeVlan *vlan,
+                              guint16 *vid_start,
+                              guint16 *vid_end)
 {
 	g_return_val_if_fail (NM_IS_BRIDGE_VLAN (vlan, TRUE), 0);
 
-	return vlan->vid;
+	NM_SET_OUT (vid_start, vlan->vid);
+	NM_SET_OUT (vid_end, vlan->vid_end);
+
+	return !!vlan->vid_end;
 }
 
 /**
@@ -288,7 +320,8 @@ nm_bridge_vlan_set_untagged (NMBridgeVlan *vlan, gboolean value)
  * @vlan: the #NMBridgeVlan
  * @value: the new value
  *
- * Change the value of the PVID property of the VLAN.
+ * Change the value of the PVID property of the VLAN. It
+ * is invalid to set the value to %TRUE for VLAN ranges.
  *
  * Since: 1.18
  **/
@@ -296,6 +329,7 @@ void
 nm_bridge_vlan_set_pvid (NMBridgeVlan *vlan, gboolean value)
 {
 	g_return_if_fail (NM_IS_BRIDGE_VLAN (vlan, FALSE));
+	g_return_if_fail (!value || !vlan->vid_end);
 
 	vlan->pvid = value;
 }
@@ -351,7 +385,7 @@ nm_bridge_vlan_new_clone (const NMBridgeVlan *vlan)
 
 	g_return_val_if_fail (NM_IS_BRIDGE_VLAN (vlan, TRUE), NULL);
 
-	copy = nm_bridge_vlan_new (vlan->vid);
+	copy = nm_bridge_vlan_new_range (vlan->vid, vlan->vid_end);
 	copy->untagged = vlan->untagged;
 	copy->pvid = vlan->pvid;
 
@@ -400,9 +434,12 @@ nm_bridge_vlan_to_str (const NMBridgeVlan *vlan, GError **error)
 	 * future if more parameters are added to the object that could
 	 * make it invalid. */
 
-	string = g_string_sized_new (20);
+	string = g_string_sized_new (28);
 
-	g_string_append_printf (string, "%u", nm_bridge_vlan_get_vid (vlan));
+	if (vlan->vid_end)
+		g_string_append_printf (string, "%u-%u", vlan->vid, vlan->vid_end);
+	else
+		g_string_append_printf (string, "%u", vlan->vid);
 	_nm_bridge_vlan_str_append_rest (vlan, string, TRUE);
 
 	return g_string_free (string, FALSE);
@@ -425,9 +462,10 @@ nm_bridge_vlan_from_str (const char *str, GError **error)
 {
 	NMBridgeVlan *vlan = NULL;
 	gs_free const char **tokens = NULL;
-	guint i, vid;
+	guint i, vid, vid_end = 0;
 	gboolean pvid = FALSE;
 	gboolean untagged = FALSE;
+	char *c;
 
 	g_return_val_if_fail (str, NULL);
 	g_return_val_if_fail (!error || !*error, NULL);
@@ -444,6 +482,23 @@ nm_bridge_vlan_from_str (const char *str, GError **error)
 		return NULL;
 	}
 
+	c = strchr (tokens[0], '-');
+	if (c) {
+		*c = '\0';
+		vid_end = _nm_utils_ascii_str_to_uint64 (c + 1,
+		                                         10,
+		                                         NM_BRIDGE_VLAN_VID_MIN,
+		                                         NM_BRIDGE_VLAN_VID_MAX,
+		                                         G_MAXUINT);
+		if (vid_end == G_MAXUINT) {
+			g_set_error (error,
+			             NM_CONNECTION_ERROR,
+			             NM_CONNECTION_ERROR_FAILED,
+			             "invalid VLAN id range end '%s', must be in [1,4094]", c + 1);
+			return NULL;
+		}
+	}
+
 	vid = _nm_utils_ascii_str_to_uint64 (tokens[0],
 	                                     10,
 	                                     NM_BRIDGE_VLAN_VID_MIN,
@@ -457,10 +512,26 @@ nm_bridge_vlan_from_str (const char *str, GError **error)
 		return NULL;
 	}
 
+	if (vid_end && vid_end <= vid) {
+		g_set_error (error,
+		             NM_CONNECTION_ERROR,
+		             NM_CONNECTION_ERROR_FAILED,
+		             "invalid VLAN id range %u-%u, start VLAN id must be less than end VLAN id",
+		             vid, vid_end);
+		return NULL;
+	}
+
 	for (i = 1; tokens[i]; i++) {
-		if (nm_streq (tokens[i], "pvid"))
+		if (nm_streq (tokens[i], "pvid")) {
+			if (vid_end) {
+				g_set_error_literal (error,
+				                     NM_CONNECTION_ERROR,
+				                     NM_CONNECTION_ERROR_FAILED,
+				                     "a VLAN range can't be a PVID");
+				return NULL;
+			}
 			pvid = TRUE;
-		else if (nm_streq (tokens[i], "untagged"))
+		} else if (nm_streq (tokens[i], "untagged"))
 			untagged = TRUE;
 		else {
 			g_set_error (error,
@@ -471,7 +542,7 @@ nm_bridge_vlan_from_str (const char *str, GError **error)
 		}
 	}
 
-	vlan = nm_bridge_vlan_new (vid);
+	vlan = nm_bridge_vlan_new_range (vid, vid_end);
 	nm_bridge_vlan_set_pvid (vlan, pvid);
 	nm_bridge_vlan_set_untagged (vlan, untagged);
 
@@ -773,28 +844,33 @@ nm_setting_bridge_remove_vlan (NMSettingBridge *setting, guint idx)
 }
 
 /**
- * nm_setting_bridge_remove_vlan_by_vid:
+ * nm_setting_bridge_remove_vlan_by_vid_range:
  * @setting: the #NMSettingBridge
- * @vid: the vlan index of the vlan to remove
+ * @vid_start: the vlan start index
+ * @vid_end: the vlan end index
  *
- * Removes the vlan vith id @vid.
+ * If @vid_end is zero, removes the VLAN with id @vid_start;
+ * otherwise removes the VLAN with range @vid_start - @vid_end.
  *
  * Returns: %TRUE if the vlan was found and removed; %FALSE otherwise
  *
  * Since: 1.18
  **/
 gboolean
-nm_setting_bridge_remove_vlan_by_vid (NMSettingBridge *setting,
-                                      guint16 vid)
+nm_setting_bridge_remove_vlan_by_vid_range (NMSettingBridge *setting,
+                                            guint16 vid_start,
+                                            guint16 vid_end)
 {
 	NMSettingBridgePrivate *priv;
+	NMBridgeVlan *vlan;
 	guint i;
 
 	g_return_val_if_fail (NM_IS_SETTING_BRIDGE (setting), FALSE);
 	priv = NM_SETTING_BRIDGE_GET_PRIVATE (setting);
 
 	for (i = 0; i < priv->vlans->len; i++) {
-		if (nm_bridge_vlan_get_vid  (priv->vlans->pdata[i]) == vid) {
+		vlan = (NMBridgeVlan *) priv->vlans->pdata[i];
+		if (vlan->vid == vid_start && vlan->vid_end == vid_end) {
 			g_ptr_array_remove_index (priv->vlans, i);
 			_notify (setting, PROP_VLANS);
 			return TRUE;
@@ -1393,13 +1469,16 @@ nm_setting_bridge_class_init (NMSettingBridgeClass *klass)
 	 *
 	 *  $vid [pvid] [untagged] [, $vid [pvid] [untagged]]...
 	 *
+	 * where $vid is either a single id between 1 and 4094 or a
+	 * range, represented as a couple of ids separated by a dash.
+	 *
 	 * Since: 1.18
 	 **/
 	/* ---ifcfg-rh---
 	 * property: vlans
 	 * variable: BRIDGE_VLANS
 	 * description: List of VLANs on the bridge
-	 * example: BRIDGE_VLANS="1 pvid untagged,20,40 untagged"
+	 * example: BRIDGE_VLANS="1 pvid untagged,20,300-400 untagged"
 	 * ---end---
 	 */
 	obj_properties[PROP_VLANS] =

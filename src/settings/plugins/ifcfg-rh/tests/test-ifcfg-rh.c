@@ -7651,7 +7651,7 @@ test_write_bridge_main (void)
 	nm_connection_add_setting (connection, NM_SETTING (s_bridge));
 
 	vlans = g_ptr_array_new_with_free_func ((GDestroyNotify) nm_bridge_vlan_unref);
-	vlan = nm_bridge_vlan_new (11);
+	vlan = nm_bridge_vlan_new_range (10, 16);
 	nm_bridge_vlan_set_untagged (vlan, TRUE);
 	g_ptr_array_add (vlans, vlan);
 	vlan = nm_bridge_vlan_new (22);
@@ -7777,11 +7777,11 @@ test_write_bridge_component (void)
 	vlan = nm_bridge_vlan_new (1);
 	nm_bridge_vlan_set_untagged (vlan, TRUE);
 	g_ptr_array_add (vlans, vlan);
-	vlan = nm_bridge_vlan_new (2);
-	nm_bridge_vlan_set_pvid (vlan, TRUE);
+	vlan = nm_bridge_vlan_new_range (4, 4094);
 	nm_bridge_vlan_set_untagged (vlan, TRUE);
 	g_ptr_array_add (vlans, vlan);
-	vlan = nm_bridge_vlan_new (4);
+	vlan = nm_bridge_vlan_new (2);
+	nm_bridge_vlan_set_pvid (vlan, TRUE);
 	g_ptr_array_add (vlans, vlan);
 
 	s_port = nm_setting_bridge_port_new ();
